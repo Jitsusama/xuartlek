@@ -69,6 +69,13 @@ def ability_mods(actor: dict) -> dict[str, int]:
 
     for kind in ("ancestry", "background"):
         sys = items.get(kind, {}).get("system", {})
+        # Alternate ancestry boosts are two free boosts taken instead of the
+        # ancestry's own boosts and flaws, never alongside them.
+        alternate = sys.get("alternateAncestryBoosts") if kind == "ancestry" else None
+        if alternate:
+            for a in alternate:
+                mods[a] = mods.get(a, 0) + 1
+            continue
         apply(sys.get("boosts"), +1)
         apply(sys.get("flaws"), -1)
 
@@ -90,6 +97,83 @@ def ability_mods(actor: dict) -> dict[str, int]:
 
 def level(actor: dict) -> int:
     return int(((actor["system"].get("details") or {}).get("level") or {}).get("value") or 1)
+
+
+SELECTION_REF = re.compile(r"^\{item\|flags\.system\.rulesSelections\.(\w+)(?:\.(\w+))?\}$")
+
+
+def resolve(item: dict, value):
+    """A rule's value, with a reference to one of the item's own choices resolved.
+
+    Awakened Animal chooses its size with a ChoiceSet, and its CreatureSize and
+    ancestry HP rules read the choice back as "{item|flags.system.rulesSelections
+    .choice.size}". The export keeps the choice on the ChoiceSet as `selection`.
+    """
+    m = SELECTION_REF.match(value) if isinstance(value, str) else None
+    if not m:
+        return value
+    for rule in item.get("system", {}).get("rules") or []:
+        if rule.get("key") == "ChoiceSet" and rule.get("flag") == m.group(1):
+            sel = rule.get("selection")
+            return sel.get(m.group(2)) if m.group(2) and isinstance(sel, dict) else sel
+    return None
+
+
+def _build_rules(actor: dict, key: str):
+    """(item, rule) for every unconditional rule of this key on ancestry or heritage.
+
+    A rule with a predicate is skipped rather than evaluated. Awakened Animal
+    raises land Speed to 20 unless the heritage is Swimming Animal, and every
+    other heritage sets 20 itself, so skipping loses nothing here.
+    """
+    items = build_items(actor)
+    for kind in ("ancestry", "heritage"):
+        item = items.get(kind, {})
+        for rule in item.get("system", {}).get("rules") or []:
+            if rule.get("key") == key and not rule.get("predicate"):
+                yield item, rule
+
+
+SIZES = {"tiny": "Tiny", "sm": "Small", "med": "Medium", "lg": "Large",
+         "small": "Small", "medium": "Medium", "large": "Large"}
+
+
+def size(actor: dict) -> str:
+    """The ancestry's size, unless a CreatureSize rule sets another."""
+    out = build_items(actor).get("ancestry", {}).get("system", {}).get("size") or "med"
+    for item, rule in _build_rules(actor, "CreatureSize"):
+        out = resolve(item, rule.get("value")) or out
+    return SIZES.get(str(out), "Medium")
+
+
+def land_speed(actor: dict) -> int:
+    """The ancestry's land Speed, raised by any BaseSpeed rule for land.
+
+    An awakened animal's ancestry says 5 feet; its heritage gives the real one.
+    """
+    speed = build_items(actor).get("ancestry", {}).get("system", {}).get("speed") or 25
+    for _item, rule in _build_rules(actor, "BaseSpeed"):
+        if rule.get("selector") == "land" and isinstance(rule.get("value"), (int, float)):
+            speed = max(speed, int(rule["value"]))
+    return speed
+
+
+def languages(actor: dict) -> list[str]:
+    """The ancestry's languages, then the ones the player chose, without repeats."""
+    anc = build_items(actor).get("ancestry", {}).get("system", {})
+    given = (anc.get("languages") or {}).get("value") or []
+    chosen = ((actor["system"].get("details") or {}).get("languages") or {}).get("value") or []
+    return list(dict.fromkeys([*given, *chosen]))
+
+
+def creature_traits(actor: dict) -> list[str]:
+    """The ancestry's name, then its other traits: Goblin, Humanoid."""
+    anc = build_items(actor).get("ancestry", {})
+    name = anc.get("name", "")
+    traits = (anc.get("system", {}).get("traits") or {}).get("value") or ["humanoid"]
+    own = name.lower().replace(" ", "-")
+    rest = [t.replace("-", " ").title() for t in traits if t != own]
+    return [name, *rest] if name else rest
 
 
 def max_hp(actor: dict, mods: dict[str, int]) -> int:
@@ -114,7 +198,7 @@ def apply_ancestry_hp_rules(actor: dict, base: int) -> int:
             if (rule.get("key") != "ActiveEffectLike"
                     or rule.get("path") != "system.attributes.ancestryhp"):
                 continue
-            val = rule.get("value")
+            val = resolve(i, rule.get("value"))
             if not isinstance(val, (int, float)):
                 continue
             mode = rule.get("mode")
