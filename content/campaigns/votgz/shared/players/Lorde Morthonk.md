@@ -67,6 +67,9 @@ saves: # unrendered
   will: +6
 
 speed: 20 feet
+attacks:
+  - name: "Melee"
+    desc: "⬻ beak +6 ([[srd/pf2e/compendium/rules-elements/traits/player-core/finesse|Finesse]], [[srd/pf2e/compendium/rules-elements/traits/player-core/unarmed|Unarmed]]) __Damage__ 1d6 piercing"
 ```
 
 ## Feats and Features

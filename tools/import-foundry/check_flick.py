@@ -14,7 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import foundry_pc as F
 
-DL = Path.home() / "Downloads"
+# The exports' folder, which build_players.py passes on from its --downloads.
+DL = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / "Downloads"
 CHECKS = {
     "fvtt-Actor-flick-(wes)-0RU6JYuFZDhsl3JI.json": {
         "abilityMods": [0, 4, 2, 0, 0, 3], "hp": 34, "ac": 19, "perception": 6,
@@ -30,6 +31,7 @@ CHECKS = {
         "nature": 6, "occultism": 8, "religion": 6, "survival": 6,
         "size": "Small", "speed": 20, "traits": ["Awakened Animal", "Beast"],
         "languages": ["common", "necril", "thalassic", "draconic", "requian"],
+        "strikes": {"beak": 6},
     },
 }
 
@@ -43,6 +45,8 @@ def check(file: str, want: dict) -> int:
         "perception": F.perception(a, m), **F.saves(a, m), **F.skills(a, m),
         "size": F.size(a), "speed": F.land_speed(a),
         "traits": F.creature_traits(a), "languages": F.languages(a),
+        "strikes": {s["name"].lower(): F.attack_bonus(a, s, m)[0]
+                    for s in F.rule_strikes(a)},
     }
     bad = 0
     print(a["name"])

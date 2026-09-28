@@ -240,7 +240,8 @@ def statblock(actor: dict, name: str, mods: dict) -> list[str]:
         f"speed: {speed} feet",
     ]
     atks = []
-    for w in actor.get("items", []):
+    # A heritage's attack, such as the goose's beak, is a rule, not an item.
+    for w in [*actor.get("items", []), *F.rule_strikes(actor)]:
         if w.get("type") != "weapon":
             continue
         line = weapon_line(actor, w, mods)
@@ -667,7 +668,7 @@ def main() -> int:
     # gave every trained proficiency +3, and the output looked plausible.
     import subprocess
     probe = subprocess.run(
-        [sys.executable, str(HERE / "check_flick.py")],
+        [sys.executable, str(HERE / "check_flick.py"), str(args.downloads)],
         capture_output=True, text=True)
     if probe.returncode != 0:
         print(probe.stdout, file=sys.stderr)

@@ -439,6 +439,56 @@ def lores(actor: dict, mods: dict[str, int]) -> dict[str, int]:
     return out
 
 
+def _chosen_options(actor: dict) -> set[str]:
+    """The roll options a character's choices set, such as "animal-attack:beak"."""
+    out = set()
+    for i in actor.get("items", []):
+        for rule in i.get("system", {}).get("rules") or []:
+            opt, sel = rule.get("rollOption"), rule.get("selection")
+            if rule.get("key") == "ChoiceSet" and opt and isinstance(sel, str):
+                out.add(f"{opt}:{sel}")
+    return out
+
+
+def _strike_name(rule: dict) -> str:
+    label = str(rule.get("label") or "")
+    if label.startswith("PF2E."):
+        label = label.rsplit(".", 1)[-1]
+    return label or str(rule.get("slug") or "strike").replace("-", " ").title()
+
+
+def rule_strikes(actor: dict) -> list[dict]:
+    """Strikes a feat grants through a rule rather than as a weapon item.
+
+    Awakened Animal's Animal Attack is the case that matters: it carries one
+    Strike rule per attack, each predicated on the choice that picks it, so
+    the goose's beak exists only as a rule. A rule counts when every term of
+    its predicate is one of the character's choices; anything else, such as
+    a torch's "not lit", is skipped rather than evaluated. The basic fist is
+    left out, as it is for everyone else. Each comes back shaped like a held
+    weapon item, so it is priced and printed as one.
+    """
+    chosen = _chosen_options(actor)
+    out = []
+    for i in actor.get("items", []):
+        for rule in i.get("system", {}).get("rules") or []:
+            pred = rule.get("predicate") or []
+            if rule.get("key") != "Strike" or rule.get("fist") or not pred:
+                continue
+            if not all(isinstance(p, str) and p in chosen for p in pred):
+                continue
+            base = (rule.get("damage") or {}).get("base") or {}
+            out.append({"type": "weapon", "name": _strike_name(rule), "system": {
+                "category": rule.get("category") or "unarmed",
+                "damage": {"dice": base.get("dice", 1), "die": base.get("die", "d4"),
+                           "damageType": base.get("damageType")},
+                "traits": {"value": list(rule.get("traits") or [])},
+                "range": rule.get("range"),
+                "equipped": {"carryType": "held"},
+            }})
+    return out
+
+
 def attack_bonus(actor: dict, weapon: dict, mods: dict[str, int]) -> tuple[int, str]:
     """Attack modifier and the ability used.
 
